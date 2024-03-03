@@ -4,8 +4,13 @@ nltk
 numpy
 ipython
 ipywidgets
+ipykernel
 pandas
 sentencepiece
 torch
+pandas
 tqdm
 wandb
+setuptools 
+wheel
+spacy
