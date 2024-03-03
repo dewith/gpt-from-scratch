@@ -1,0 +1,11 @@
+datasets
+IProgress
+nltk
+numpy
+ipython
+ipywidgets
+pandas
+sentencepiece
+torch
+tqdm
+wandb
