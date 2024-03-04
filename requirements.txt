@@ -11,6 +11,7 @@ torch
 pandas
 tqdm
 wandb
-setuptools 
+setuptools
 wheel
 spacy
+pre-commit
