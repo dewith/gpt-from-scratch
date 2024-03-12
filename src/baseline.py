@@ -6,58 +6,19 @@ Date created: 2024-03-05
 """
 
 import torch
-from torch import nn
-from torch.nn import functional as F
 
 from src.utils.logging import get_logger
 from src.utils.data import get_corpus_text, get_data_split, Tokenizer, Batcher
-from src.utils.evaluation import estimate_loss
-
-
-class BigramLanguageModel(nn.Module):
-    """Bigram language model."""
-
-    def __init__(self, vocab_size):
-        super().__init__()
-        # Each token reads the logits for the next token from the lookup table
-        self.lookup = nn.Embedding(vocab_size, vocab_size)
-
-    def forward(self, idx, targets=None):
-        """Forward pass of the model."""
-        # idx and targets are both of shape (batch_size, sequence_length)
-        logits = self.lookup(idx)
-
-        if targets is None:
-            loss = None
-        else:
-            # (B, T, C) (batch_size, sequence_length, vocab_size)
-            b, t, c = logits.shape  # Shape (32, 8, 527)
-            logits_ = logits.view(b * t, c)  # Reshape to (256, 527)
-            targets_ = targets.view(-1)  # Reshape from (32, 8) to (256)
-            loss = F.cross_entropy(logits_, targets_)
-        return logits, loss
-
-    def generate(self, idx, length):
-        """Generate text using the model."""
-        with torch.no_grad():
-            for _ in range(length):
-                # Get the predictions for the all the tokens
-                logits, _ = self.forward(idx)  # (B, T, C)
-                # Get the last token
-                logits = logits[:, -1, :]  # (B, C)
-                # Apply softmax to get the probabilities
-                probs = F.softmax(logits, dim=-1)  # (B, C)
-                # Sample the next token
-                next_token = torch.multinomial(probs, 1)  # (B, 1)
-                # Append the next token to the sequence
-                idx = torch.cat([idx, next_token], dim=-1)  # (B, T+1)
-        return idx
+from src.nn.bigram import BigramLanguageModel
+from src.nn.evaluation import estimate_loss
 
 
 def main():
     """Main function for training the bigram language model."""
     # pylint: disable=too-many-locals
     # pylint: disable=too-many-statements
+    LOGGER.info("Training the Bigram Language Model")
+
     # Data
     LOGGER.info("├── Loading the dataset")
     dataset_path = "dewithsan/secop_corpus_clean"
@@ -86,7 +47,9 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     batcher = Batcher(train_data, val_data, batch_size, block_size)
     LOGGER.info("│   ├── Model created with vocab of %s", vocab_size)
-    LOGGER.info("│   └── Batcher initialized with size %s", batch_size)
+    LOGGER.info("│   ├── Optimizer: AdamW with lr %s", learning_rate)
+    LOGGER.info("│   ├── Device: %s", device)
+    LOGGER.info("│   └── Batcher size: %s", batch_size)
     LOGGER.info("│")
 
     # Model training
@@ -132,5 +95,4 @@ def main():
 
 if __name__ == "__main__":
     LOGGER = get_logger()
-    LOGGER.info("Training the Bigram Language Model")
     main()
