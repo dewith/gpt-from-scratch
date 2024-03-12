@@ -1,5 +1,5 @@
 """
-Description: This script trains a bigram language model using a small dataset.
+This script trains a bigram language model using a small dataset.
 The model is trained using a small dataset and then used to generate text.
 
 Date created: 2024-03-05
@@ -18,18 +18,13 @@ from unidecode import unidecode
 
 
 def get_logger():
-    """Get the LOGGER for the script."""
-    file_name = os.path.basename(sys.argv[0])
+    """Get the logger for the script."""
+    file_name = os.path.basename(sys.argv[0]).replace(".py", "")
     file_handler = logging.FileHandler(filename=f"logs/{file_name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
-
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
-        handlers=handlers,
-    )
-
+    format_ = "%(asctime)s L%(lineno)s %(levelname)s %(message)s"
+    logging.basicConfig(level=logging.INFO, format=format_, handlers=handlers)
     logger = logging.getLogger(file_name)
     return logger
 
@@ -40,14 +35,13 @@ def get_corpus_text(dataset_path):
     corpus_df = dataset["train"].to_pandas()
     corpus_text = "\n".join(corpus_df["doc_text"])
 
-    # Clean the text
     corpus_text_clean = corpus_text.replace("\n", " ").replace("\r", " ")
     corpus_text_clean = re.sub(r" +", " ", corpus_text_clean)
     pat = r'[^\w\s!"·$%&/()=?¿\\|@#+,\.-^\*;:_\[\]\{\} !¡¿?,\.@#$%^&\*]'
     corpus_text_clean = re.sub(pat, "", corpus_text_clean)
     corpus_text_clean = corpus_text_clean.lower()
     corpus_text_clean = unidecode(corpus_text_clean)
-    return corpus_text
+    return corpus_text_clean
 
 
 def get_data_split(corpus_text, tokenizer):
@@ -68,7 +62,7 @@ class Tokenizer:
         self.itos = itos
         self.vocab_size = len(stoi)
 
-    def encode(self, text):
+    def encode(self, text: str) -> list:
         """Encode text to integers."""
         return [self.stoi.get(char, self.stoi["[UNK]"]) for char in text]
 
@@ -78,9 +72,10 @@ class Tokenizer:
 
     def _get_token_maps(self, corpus_text):
         chars = sorted(list(set(corpus_text)))
-        stoi = {char: i for i, char in enumerate(chars, start=0)}
         itos = dict(enumerate(chars, start=0))
         itos[max(itos) + 1] = "[UNK]"
+        stoi = {char: i for i, char in enumerate(chars, start=0)}
+        stoi["[UNK]"] = max(stoi)
         return stoi, itos
 
 
@@ -109,22 +104,21 @@ class BigramLanguageModel(nn.Module):
 
     def __init__(self, vocab_size):
         super().__init__()
-        # each token directly reads the logits for the next token
-        # from the lookup table
+        # Each token reads the logits for the next token from the lookup table
         self.lookup = nn.Embedding(vocab_size, vocab_size)
 
     def forward(self, idx, targets=None):
         """Forward pass of the model."""
-        # idx and tarder are both of shape (batch_size, sequence_length)
-        # (B, T, C) (batch_size, sequence_length, vocab_size)
+        # idx and targets are both of shape (batch_size, sequence_length)
         logits = self.lookup(idx)
 
         if targets is None:
             loss = None
         else:
-            b, c, t = logits.shape  # (4, 8, 96)
-            logits_ = logits.view(b * t, c)  # reshape to (32, 96)
-            targets_ = targets.view(-1)  # reshape to (32)
+            # (B, T, C) (batch_size, sequence_length, vocab_size)
+            b, t, c = logits.shape  # Shape (32, 8, 527)
+            logits_ = logits.view(b * t, c)  # Reshape to (256, 527)
+            targets_ = targets.view(-1)  # Reshape from (32, 8) to (256)
             loss = F.cross_entropy(logits_, targets_)
         return logits, loss
 
@@ -132,15 +126,15 @@ class BigramLanguageModel(nn.Module):
         """Generate text using the model."""
         with torch.no_grad():
             for _ in range(length):
-                # get the predictions for the all the tokens
+                # Get the predictions for the all the tokens
                 logits, _ = self.forward(idx)  # (B, T, C)
-                # get the last token
+                # Get the last token
                 logits = logits[:, -1, :]  # (B, C)
-                # apply softmax to get the probabilities
+                # Apply softmax to get the probabilities
                 probs = F.softmax(logits, dim=-1)  # (B, C)
-                # sample the next token
+                # Sample the next token
                 next_token = torch.multinomial(probs, 1)  # (B, 1)
-                # append the next token to the sequence
+                # Append the next token to the sequence
                 idx = torch.cat([idx, next_token], dim=-1)  # (B, T+1)
         return idx
 
@@ -164,64 +158,80 @@ def estimate_loss(model, batcher, eval_iters):
 def main():
     """Main function for training the bigram language model."""
     # pylint: disable=too-many-locals
+    # pylint: disable=too-many-statements
+    # Data
+    LOGGER.info("├── Loading the dataset")
+    dataset_path = "dewithsan/secop_corpus_clean"
+    corpus = get_corpus_text(dataset_path)
+    LOGGER.info("│   ├── Downloaded from %s", dataset_path)
+    tokenizer = Tokenizer(corpus)
+    train_data, val_data = get_data_split(corpus, tokenizer)
+    LOGGER.info("│   └── Data tokenized and splitted")
+    LOGGER.info("│")
+
     # Hyperparameters
     batch_size = 32
     block_size = 8
     learning_rate = 1e-3
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    max_steps = 50000
-    step_loss_interval = 1000
-    eval_interval = 5000
+    max_steps = 20000
+    step_loss_interval = 200
+    eval_interval = 1000
     eval_iters = 200
 
-    # Data
-    LOGGER.info("-> Loading the dataset")
-    dataset_path = "dewithsan/secop_corpus_clean"
-    corpus = get_corpus_text(dataset_path)
-    tokenizer = Tokenizer(corpus)
-    train_data, val_data = get_data_split(corpus, tokenizer)
-
     # Model definition
-    LOGGER.info("-> Defining the model")
-    model = BigramLanguageModel(tokenizer.vocab_size)
+    LOGGER.info("├── Defining the model")
+    vocab_size = tokenizer.vocab_size
+    model = BigramLanguageModel(vocab_size)
     model = model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     batcher = Batcher(train_data, val_data, batch_size, block_size)
+    LOGGER.info("│   ├── Model created with vocab of %s", vocab_size)
+    LOGGER.info("│   └── Batcher initialized with size %s", batch_size)
+    LOGGER.info("│")
 
     # Model training
-    LOGGER.info("-> Training the model")
-    for step in range(max_steps):
-        # Sample a batch of data
-        xb, yb = batcher.get_batch("train")
-
+    LOGGER.info("├── Training the model with %s steps", max_steps)
+    for step in range(max_steps + 1):
         # Forward pass
+        xb, yb = batcher.get_batch("train")
+        xb, yb = xb.to(device), yb.to(device)
         _, loss = model(xb, yb)
+
+        # Backward pass
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
         if step % step_loss_interval == 0:
-            print(f"| \tStep: {step}, Loss: {loss.item():.3f}")
+            loss_str = f"{loss.item():.4f}"
+            LOGGER.info("│   ├── Step %s ~ Loss: %s", step, loss_str)
 
         # Evaluate the model and log the losses
         if step % eval_interval == 0:
             losses = estimate_loss(model, batcher, eval_iters)
-            train_loss = losses["train"]
-            val_loss = losses["val"]
-            print(f"| Step: {step}, Train Loss: {train_loss:.3f}")
-            print(f"| Step: {step}, Val Loss: {val_loss:.3f}")
-    LOGGER.info("| Model training completed")
+            train_loss = f"{losses['train']:.4f}"
+            val_loss = f"{losses['val']:.4f}"
+            LOGGER.info("│   │   ├── Train loss: %s", train_loss)
+            LOGGER.info("│   │   └── Val loss:   %s", val_loss)
 
-    LOGGER.info("-> Generating text")
+    LOGGER.info("│   └── Model training completed")
+    LOGGER.info("│")
+
+    LOGGER.info("├── Generating text")
     context = torch.randint(tokenizer.vocab_size, (1, 1)).to(device)
-    generated_tokens = model.generate(context, 100)
+    generated_tokens = model.generate(context, 80)
     generated_text = tokenizer.decode(generated_tokens[0].tolist())
-    print(generated_text)
+    LOGGER.info("│   ├── Text generated")
+    LOGGER.info("│   └── %s", generated_text.replace("\n", " "))
+    LOGGER.info("│")
 
-    LOGGER.info("-> Saving the model")
-    torch.save(model.state_dict(), "bigram_model.pth")
-    LOGGER.info("| Model saved")
+    LOGGER.info("└── Saving the model")
+    local_path = "data/04_models/bigram_model.pth"
+    torch.save(model.state_dict(), local_path)
+    LOGGER.info("    └── Model saved at %s", local_path)
 
 
 if __name__ == "__main__":
     LOGGER = get_logger()
+    LOGGER.info("Training the Bigram Language Model")
     main()
