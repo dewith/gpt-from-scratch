@@ -5,98 +5,13 @@ The model is trained using a small dataset and then used to generate text.
 Date created: 2024-03-05
 """
 
-import logging
-import os
-import re
-import sys
-
 import torch
 from torch import nn
 from torch.nn import functional as F
-from datasets import load_dataset
-from unidecode import unidecode
 
-
-def get_logger():
-    """Get the logger for the script."""
-    file_name = os.path.basename(sys.argv[0]).replace(".py", "")
-    file_handler = logging.FileHandler(filename=f"logs/{file_name}.log")
-    stdout_handler = logging.StreamHandler(stream=sys.stdout)
-    handlers = [file_handler, stdout_handler]
-    format_ = "%(asctime)s L%(lineno)s %(levelname)s %(message)s"
-    logging.basicConfig(level=logging.INFO, format=format_, handlers=handlers)
-    logger = logging.getLogger(file_name)
-    return logger
-
-
-def get_corpus_text(dataset_path):
-    """Get the corpus text"""
-    dataset = load_dataset(dataset_path)
-    corpus_df = dataset["train"].to_pandas()
-    corpus_text = "\n".join(corpus_df["doc_text"])
-
-    corpus_text_clean = corpus_text.replace("\n", " ").replace("\r", " ")
-    corpus_text_clean = re.sub(r" +", " ", corpus_text_clean)
-    pat = r'[^\w\s!"·$%&/()=?¿\\|@#+,\.-^\*;:_\[\]\{\} !¡¿?,\.@#$%^&\*]'
-    corpus_text_clean = re.sub(pat, "", corpus_text_clean)
-    corpus_text_clean = corpus_text_clean.lower()
-    corpus_text_clean = unidecode(corpus_text_clean)
-    return corpus_text_clean
-
-
-def get_data_split(corpus_text, tokenizer):
-    """Get the data split into training and validation sets."""
-    data = torch.tensor(tokenizer.encode(corpus_text), dtype=torch.long)
-    train_size = int(len(data) * 0.90)
-    train_data = data[:train_size]
-    val_data = data[train_size:]
-    return train_data, val_data
-
-
-class Tokenizer:
-    """Tokenizer class for encoding and decoding text."""
-
-    def __init__(self, corpus_text):
-        stoi, itos = self._get_token_maps(corpus_text)
-        self.stoi = stoi
-        self.itos = itos
-        self.vocab_size = len(stoi)
-
-    def encode(self, text: str) -> list:
-        """Encode text to integers."""
-        return [self.stoi.get(char, self.stoi["[UNK]"]) for char in text]
-
-    def decode(self, integers: list) -> str:
-        """Decode list of integers to text."""
-        return "".join([self.itos[i] for i in integers])
-
-    def _get_token_maps(self, corpus_text):
-        chars = sorted(list(set(corpus_text)))
-        itos = dict(enumerate(chars, start=0))
-        itos[max(itos) + 1] = "[UNK]"
-        stoi = {char: i for i, char in enumerate(chars, start=0)}
-        stoi["[UNK]"] = max(stoi)
-        return stoi, itos
-
-
-class Batcher:
-    """Batcher class for generating batches of data."""
-
-    # pylint: disable=too-few-public-methods
-
-    def __init__(self, train_data, val_data, batch_size, block_size):
-        self.train_data = train_data
-        self.val_data = val_data
-        self.batch_size = batch_size
-        self.block_size = block_size
-
-    def get_batch(self, split):
-        """Generates a small batch of data of inputs x and targets y"""
-        data = self.train_data if split == "train" else self.val_data
-        ix = torch.randint(len(data) - self.block_size, (self.batch_size,))
-        x = torch.stack([data[i : i + self.block_size] for i in ix])
-        y = torch.stack([data[i + 1 : i + self.block_size + 1] for i in ix])
-        return x, y
+from src.utils.logging import get_logger
+from src.utils.data import get_corpus_text, get_data_split, Tokenizer, Batcher
+from src.utils.evaluation import estimate_loss
 
 
 class BigramLanguageModel(nn.Module):
@@ -137,22 +52,6 @@ class BigramLanguageModel(nn.Module):
                 # Append the next token to the sequence
                 idx = torch.cat([idx, next_token], dim=-1)  # (B, T+1)
         return idx
-
-
-@torch.no_grad()
-def estimate_loss(model, batcher, eval_iters):
-    """Estimate the loss of the model on the training and validation sets."""
-    out = {}
-    model.eval()
-    for split in ["train", "val"]:
-        losses = torch.zeros(eval_iters)
-        for k in range(eval_iters):
-            x, y = batcher.get_batch(split)
-            _, loss = model(x, y)
-            losses[k] = loss.item()
-        out[split] = losses.mean()
-    model.train()
-    return out
 
 
 def main():
