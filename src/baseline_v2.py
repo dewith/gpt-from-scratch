@@ -5,11 +5,12 @@ The model is trained using a small dataset and then used to generate text.
 Date created: 2024-03-05
 """
 
+# pylint: disable=duplicate-code
 import torch
 
 from src.utils.logging import get_logger
 from src.utils.data import get_corpus_text, get_data_split, Tokenizer, Batcher
-from src.nn.bigram import BigramLanguageModel
+from src.nn.bigram import BigramLanguageModelV2
 from src.nn.evaluation import estimate_loss
 
 
@@ -17,7 +18,7 @@ def main():
     """Main function for training the bigram language model."""
     # pylint: disable=too-many-locals
     # pylint: disable=too-many-statements
-    LOGGER.info("Training the Bigram Language Model")
+    LOGGER.info("Training the Bigram Language Model v2")
 
     # Data
     LOGGER.info("├── Loading the dataset")
@@ -32,6 +33,7 @@ def main():
     # Hyperparameters
     LOGGER.info("├── Defining hyperparameters")
     batch_size = 32
+    num_embeds = 32
     block_size = 8
     learning_rate = 1e-3
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -43,7 +45,7 @@ def main():
     # Model definition
     LOGGER.info("├── Defining the model")
     vocab_size = tokenizer.vocab_size
-    model = BigramLanguageModel(vocab_size)
+    model = BigramLanguageModelV2(vocab_size, num_embeds, block_size)
     model = model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     batcher = Batcher(train_data, val_data, batch_size, block_size)
@@ -54,7 +56,7 @@ def main():
     LOGGER.info("│")
 
     LOGGER.info("├── Visualizing the model")
-    viz_path = "data/04_models/bigram_viz.png"
+    viz_path = "data/04_models/bigram_viz_v2.png"
     model_viz = model.viz()
     model_viz.render(
         filename=viz_path.rsplit(".", maxsplit=1)[0],
@@ -99,7 +101,7 @@ def main():
     LOGGER.info("│")
 
     LOGGER.info("└── Saving the model")
-    local_path = "data/04_models/bigram_model.pth"
+    local_path = "data/04_models/bigram_model_v2.pth"
     torch.save(model.state_dict(), local_path)
     LOGGER.info("    └── Model saved at %s", local_path)
 
