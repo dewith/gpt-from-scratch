@@ -7,23 +7,58 @@ The `Batcher` class is used to generate batches of data.
 """
 
 import re
+import logging
+
+import pandas as pd
 import torch
 from datasets import load_dataset
 from unidecode import unidecode
 
+LOGGER = logging.getLogger(__name__)
 
-def get_corpus_text(dataset_path):
+
+def get_corpus_text(local_path=None, hf_path=None, is_clean=False):
     """Get the corpus text"""
-    dataset = load_dataset(dataset_path)
-    corpus_df = dataset["train"].to_pandas()
-    corpus_text = "\n".join(corpus_df["doc_text"])
+    if not is_clean:
+        if local_path is None and hf_path is None:
+            raise ValueError("At least one of local or hf path must be passed.")
 
-    corpus_text_clean = corpus_text.replace("\n", " ").replace("\r", " ")
-    corpus_text_clean = re.sub(r" +", " ", corpus_text_clean)
-    pat = r'[^\w\s!"·$%&/()=?¿\\|@#+,\.-^\*;:_\[\]\{\} !¡¿?,\.@#$%^&\*]'
-    corpus_text_clean = re.sub(pat, "", corpus_text_clean)
-    corpus_text_clean = corpus_text_clean.lower()
-    corpus_text_clean = unidecode(corpus_text_clean)
+        if local_path is not None and hf_path is None:
+            corpus_df = pd.read_csv(local_path)
+            path = local_path
+        elif local_path is None and hf_path is not None:
+            dataset = load_dataset(hf_path)
+            corpus_df = dataset["train"].to_pandas()
+            path = hf_path
+        else:
+            try:
+                corpus_df = pd.read_csv(local_path)
+                path = local_path
+            except Exception as e:  # pylint: disable=broad-except
+                LOGGER.warning("│   ├── Local path raised exception:")
+                LOGGER.error("│   ├── \t%s", e)
+                LOGGER.warning("│   ├── Loading from Hugging Face dataset.")
+                dataset = load_dataset(hf_path)
+                corpus_df = dataset["train"].to_pandas()
+                path = hf_path
+        LOGGER.info("│   ├── Loaded from %s", path)
+
+        corpus_text = "\n".join(corpus_df["doc_text"])
+        corpus_text_clean = corpus_text.replace("\n", " ").replace("\r", " ")
+        corpus_text_clean = re.sub(r" +", " ", corpus_text_clean)
+        pat = r'[^\w\s!"·$%&/()=?¿\\|@#+,\.-^\*;:_\[\]\{\} !¡¿?,\.@#$%^&\*]'
+        corpus_text_clean = re.sub(pat, "", corpus_text_clean)
+        corpus_text_clean = corpus_text_clean.lower()
+        corpus_text_clean = unidecode(corpus_text_clean)
+        LOGGER.info("│   ├── Corpues cleaned and normalized")
+
+        with open("data/02_primary/corpus.txt", "w", encoding="utf-8") as f:
+            f.write(corpus_text_clean)
+    else:
+        with open(local_path, "r", encoding="utf-8") as f:
+            corpus_text_clean = f.read()
+        LOGGER.info("│   ├── Loaded already clean corpus from %s", local_path)
+
     return corpus_text_clean
 
 
