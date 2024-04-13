@@ -177,10 +177,8 @@ class Transformer(nn.Module):
                 idx = torch.cat([idx, next_token], dim=-1)
         return generated_sequence
 
-    def viz(self):
+    def viz(self, x, y):
         """Visualize the model."""
-        x = torch.randint(self.vocab_size, (1, self.block_size))
-        y = torch.randint(self.vocab_size, (1, self.block_size))
         viz = make_dot(
             self(x, y)[1],
             params=dict(self.named_parameters()),
