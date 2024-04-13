@@ -35,22 +35,26 @@ def main():
 
     # Hyperparameters
     LOGGER.info("├── Defining hyperparameters")
-    batch_size = 16
-    block_size = 8
-    num_embeds = 32
-    num_heads = 4
+    batch_size = 64
+    block_size = 256
+    num_embeds = 384
+    num_heads = 6
     head_size = num_embeds // num_heads
-    learning_rate = 1e-3
+    num_layers = 6
+    dropout = 0.2
+    learning_rate = 3e-4
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    max_steps = 10000
-    step_loss_interval = 200
-    eval_interval = 1000
-    eval_iters = 200
+    max_steps = 5000
+    step_loss_interval = 100
+    eval_interval = 500
+    eval_iters = 100
 
     # Model definition
     LOGGER.info("├── Defining the model")
     vocab_size = tokenizer.vocab_size
-    model = Transformer(vocab_size, num_embeds, block_size, num_heads, head_size)
+    model = Transformer(
+        vocab_size, num_embeds, block_size, num_heads, head_size, num_layers, dropout
+    )
     model = model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     batcher = Batcher(train_data, val_data, batch_size, block_size)

@@ -11,13 +11,14 @@ class Head(nn.Module):
 
     # pylint: disable=too-few-public-methods
 
-    def __init__(self, block_size=8, num_embeds=64, head_size=8):
+    def __init__(self, block_size=8, num_embeds=64, head_size=8, dropout=0.1):
         super().__init__()
         self.head_size = head_size
         self.key = nn.Linear(num_embeds, head_size, bias=False)
         self.query = nn.Linear(num_embeds, head_size, bias=False)
         self.value = nn.Linear(num_embeds, head_size, bias=False)
         self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         """Forward pass of the model."""
@@ -30,6 +31,7 @@ class Head(nn.Module):
         scores = (q @ k.transpose(-2, -1)) / (self.head_size**0.5)
         scores_masked = scores.masked_fill(self.tril[:t, :t] == 0, float("-inf"))
         weights = torch.softmax(scores_masked, dim=-1)
+        weights = self.dropout(weights)
 
         # Compute the weighted sum of the values
         output = weights @ v
@@ -40,14 +42,21 @@ class MultiHeadAttention(nn.Module):
     """Multiple heads of attention."""
 
     # pylint: disable=too-few-public-methods
+    # pylint: disable=too-many-arguments
 
-    def __init__(self, num_heads, block_size, num_embeds, head_size):
+    def __init__(self, num_heads, block_size, num_embeds, head_size, dropout):
         super().__init__()
-        self.heads = [Head(block_size, num_embeds, head_size) for _ in range(num_heads)]
+        self.heads = [
+            Head(block_size, num_embeds, head_size, dropout) for _ in range(num_heads)
+        ]
+        self.proj = nn.Linear(num_embeds, num_embeds)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         """Forward pass of the model."""
-        return torch.cat([head(x) for head in self.heads], dim=-1)
+        out = torch.cat([head(x) for head in self.heads], dim=-1)
+        out = self.dropout(self.proj(out))
+        return out
 
 
 class FeedForward(nn.Module):
@@ -55,16 +64,40 @@ class FeedForward(nn.Module):
 
     # pylint: disable=too-few-public-methods
 
-    def __init__(self, num_embeds):
+    def __init__(self, num_embeds, dropout=0.1):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(num_embeds, num_embeds),
+            nn.Linear(num_embeds, 4 * num_embeds),
             nn.ReLU(),
+            nn.Linear(4 * num_embeds, num_embeds),
+            nn.Dropout(dropout),
         )
 
     def forward(self, x):
         """Forward pass of the model."""
         return self.net(x)
+
+
+class Block(nn.Module):
+    """Transformer block. Communication followed by computation"""
+
+    # pylint: disable=too-few-public-methods
+    # pylint: disable=too-many-arguments
+
+    def __init__(self, num_heads, block_size, num_embeds, head_size, dropout):
+        super().__init__()
+        self.layer_norm1 = nn.LayerNorm(num_embeds)
+        self.attention_heads = MultiHeadAttention(
+            num_heads, block_size, num_embeds, head_size, dropout
+        )
+        self.layer_norm2 = nn.LayerNorm(num_embeds)
+        self.feed_forward = FeedForward(num_embeds, dropout)
+
+    def forward(self, x):
+        """Forward pass of the model."""
+        x = x + self.attention_heads(self.layer_norm1(x))
+        x = x + self.feed_forward(self.layer_norm2(x))
+        return x
 
 
 class Transformer(nn.Module):
@@ -80,6 +113,8 @@ class Transformer(nn.Module):
         block_size: int = 8,
         num_heads: int = 4,
         head_size: int = 8,
+        num_layers: int = 3,
+        dropout: float = 0.1,
     ):
         super().__init__()
         self.vocab_size = vocab_size
@@ -89,10 +124,13 @@ class Transformer(nn.Module):
         # Each token reads the logits for the next token from the lookup table
         self.token_embed_table = nn.Embedding(vocab_size, num_embeds)
         self.position_embed_table = nn.Embedding(block_size, num_embeds)
-        self.attention_heads = MultiHeadAttention(
-            num_heads, block_size, num_embeds, head_size
+        self.blocks = nn.Sequential(
+            *[
+                Block(num_heads, block_size, num_embeds, head_size, dropout)
+                for _ in range(num_layers)
+            ]
         )
-        self.feed_forward = FeedForward(num_embeds)
+        self.layer_norm = nn.LayerNorm(num_embeds)
         self.linear_head = nn.Linear(num_embeds, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -103,9 +141,9 @@ class Transformer(nn.Module):
         tok_emb = self.token_embed_table(idx)  # (B, T, E)
         pos_emb = self.position_embed_table(torch.arange(t).to(idx.device))  # (T, E)
         x = tok_emb + pos_emb  # (B, T, E)
-        x_att = self.attention_heads(x)  # (B, T, E)
-        x_ffwd = self.feed_forward(x_att)  # (B, T, E)
-        logits = self.linear_head(x_ffwd)
+        x = self.blocks(x)  # (B, T, E)
+        x = self.layer_norm(x)  # (B, T, E)
+        logits = self.linear_head(x)
 
         if targets is None:
             loss = None
