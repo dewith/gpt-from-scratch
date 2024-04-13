@@ -15,3 +15,5 @@ setuptools
 wheel
 spacy
 pre-commit
+unidecode
+torchviz
