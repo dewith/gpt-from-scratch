@@ -159,7 +159,15 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-data/*
+
 conf/*
 !conf/global.yml
 .DS_Store
+# Ignore all files inside the "data" directory except for ".gitignore"
+data/*
+# But keep all subdirectories
+!data/*/
+# Ignore all files in subdirectories
+data/*/**
+# Keep .gitkeep files
+!data/*/.gitkeep
