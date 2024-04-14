@@ -10,14 +10,19 @@ class Head(nn.Module):
     """Attetion head."""
 
     # pylint: disable=too-few-public-methods
+    # pylint: disable=too-many-arguments
 
-    def __init__(self, block_size=8, num_embeds=64, head_size=8, dropout=0.1):
+    def __init__(
+        self, block_size=8, num_embeds=64, head_size=8, dropout=0.1, device="cpu"
+    ):
         super().__init__()
         self.head_size = head_size
-        self.key = nn.Linear(num_embeds, head_size, bias=False)
-        self.query = nn.Linear(num_embeds, head_size, bias=False)
-        self.value = nn.Linear(num_embeds, head_size, bias=False)
-        self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
+        self.key = nn.Linear(num_embeds, head_size, bias=False).to(device)
+        self.query = nn.Linear(num_embeds, head_size, bias=False).to(device)
+        self.value = nn.Linear(num_embeds, head_size, bias=False).to(device)
+        self.register_buffer(
+            "tril", torch.tril(torch.ones(block_size, block_size)).to(device)
+        )
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -44,10 +49,11 @@ class MultiHeadAttention(nn.Module):
     # pylint: disable=too-few-public-methods
     # pylint: disable=too-many-arguments
 
-    def __init__(self, num_heads, block_size, num_embeds, head_size, dropout):
+    def __init__(self, num_heads, block_size, num_embeds, head_size, dropout, device):
         super().__init__()
         self.heads = [
-            Head(block_size, num_embeds, head_size, dropout) for _ in range(num_heads)
+            Head(block_size, num_embeds, head_size, dropout, device)
+            for _ in range(num_heads)
         ]
         self.proj = nn.Linear(num_embeds, num_embeds)
         self.dropout = nn.Dropout(dropout)
@@ -84,11 +90,11 @@ class Block(nn.Module):
     # pylint: disable=too-few-public-methods
     # pylint: disable=too-many-arguments
 
-    def __init__(self, num_heads, block_size, num_embeds, head_size, dropout):
+    def __init__(self, num_heads, block_size, num_embeds, head_size, dropout, device):
         super().__init__()
         self.layer_norm1 = nn.LayerNorm(num_embeds)
         self.attention_heads = MultiHeadAttention(
-            num_heads, block_size, num_embeds, head_size, dropout
+            num_heads, block_size, num_embeds, head_size, dropout, device
         )
         self.layer_norm2 = nn.LayerNorm(num_embeds)
         self.feed_forward = FeedForward(num_embeds, dropout)
@@ -115,6 +121,7 @@ class Transformer(nn.Module):
         head_size: int = 8,
         num_layers: int = 3,
         dropout: float = 0.1,
+        device: str = "cpu",
     ):
         super().__init__()
         self.vocab_size = vocab_size
@@ -126,7 +133,7 @@ class Transformer(nn.Module):
         self.position_embed_table = nn.Embedding(block_size, num_embeds)
         self.blocks = nn.Sequential(
             *[
-                Block(num_heads, block_size, num_embeds, head_size, dropout)
+                Block(num_heads, block_size, num_embeds, head_size, dropout, device)
                 for _ in range(num_layers)
             ]
         )

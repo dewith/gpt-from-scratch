@@ -53,7 +53,14 @@ def main():
     LOGGER.info("├── Defining the model")
     vocab_size = tokenizer.vocab_size
     model = Transformer(
-        vocab_size, num_embeds, block_size, num_heads, head_size, num_layers, dropout
+        vocab_size,
+        num_embeds,
+        block_size,
+        num_heads,
+        head_size,
+        num_layers,
+        dropout,
+        device,
     )
     model = model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -64,18 +71,17 @@ def main():
     LOGGER.info("│   └── Batcher size: %s", batch_size)
     LOGGER.info("│")
 
-    if False:
-        LOGGER.info("├── Visualizing the model")
-        viz_path = "data/04_models/transformer.png"
-        x_viz, y_viz = batcher.get_batch("train")
-        x_viz, y_viz = x_viz.to(device), y_viz.to(device)
-        model_viz = model.viz(x_viz, y_viz)
-        model_viz.render(
-            filename=viz_path.rsplit(".", maxsplit=1)[0],
-            format=viz_path.rsplit(".", maxsplit=1)[-1],
-            cleanup=True,
-        )
-        LOGGER.info("│   └── Model visualization saved at %s", viz_path)
+    LOGGER.info("├── Visualizing the model")
+    viz_path = "data/04_models/transformer.png"
+    x_viz, y_viz = batcher.get_batch("train")
+    x_viz, y_viz = x_viz.to(device), y_viz.to(device)
+    model_viz = model.viz(x_viz, y_viz)
+    model_viz.render(
+        filename=viz_path.rsplit(".", maxsplit=1)[0],
+        format=viz_path.rsplit(".", maxsplit=1)[-1],
+        cleanup=True,
+    )
+    LOGGER.info("│   └── Model visualization saved at %s", viz_path)
 
     # Model training
     LOGGER.info("├── Training the model with %s steps", max_steps)
