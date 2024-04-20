@@ -101,12 +101,14 @@ class Batcher:
     """Batcher class for generating batches of data."""
 
     # pylint: disable=too-few-public-methods
+    # pylint: disable=too-many-arguments
 
-    def __init__(self, train_data, val_data, batch_size, block_size):
+    def __init__(self, train_data, val_data, batch_size, block_size, device="cpu"):
         self.train_data = train_data
         self.val_data = val_data
         self.batch_size = batch_size
         self.block_size = block_size
+        self.device = device
 
     def get_batch(self, split):
         """Generates a small batch of data of inputs x and targets y"""
@@ -114,4 +116,4 @@ class Batcher:
         ix = torch.randint(len(data) - self.block_size, (self.batch_size,))
         x = torch.stack([data[i : i + self.block_size] for i in ix])
         y = torch.stack([data[i + 1 : i + self.block_size + 1] for i in ix])
-        return x, y
+        return x.to(self.device), y.to(self.device)

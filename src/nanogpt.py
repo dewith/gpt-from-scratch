@@ -5,6 +5,8 @@ Date created: 2024-03-31
 """
 
 # pylint: disable=duplicate-code
+import time
+import pickle
 import torch
 
 from src.utils.logging import get_logger
@@ -28,9 +30,20 @@ def main():
         dataset_local_path = "data/01_raw/secop_corpus.csv"
         dataset_hf_path = "dewithsan/secop_corpus_clean"
         corpus = get_corpus_text(dataset_local_path, dataset_hf_path)
-    tokenizer = Tokenizer(corpus)
+
+    tokenizer_path = "data/04_models/transformer_tokenizer.pkl"
+    try:
+        with open(tokenizer_path, "rb") as f:
+            tokenizer = pickle.load(f)
+        LOGGER.info("│   ├── Tokenizer loaded from file")
+    except FileNotFoundError:
+        tokenizer = Tokenizer(corpus)
+        with open(tokenizer_path, "wb") as f:
+            pickle.dump(tokenizer, f)
+        LOGGER.info("│   ├── Tokenizer created and saved at %s", tokenizer_path)
+
     train_data, val_data = get_data_split(corpus, tokenizer)
-    LOGGER.info("│   └── Data tokenized and train/val splitted")
+    LOGGER.info("│   └── Data tokenized and train-val splitted")
     LOGGER.info("│")
 
     # Hyperparameters
@@ -44,7 +57,7 @@ def main():
     dropout = 0.2
     learning_rate = 3e-4
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    max_steps = 5000
+    max_steps = 25000
     step_loss_interval = 100
     eval_interval = 500
     eval_iters = 100
@@ -64,7 +77,7 @@ def main():
     )
     model = model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-    batcher = Batcher(train_data, val_data, batch_size, block_size)
+    batcher = Batcher(train_data, val_data, batch_size, block_size, device)
     LOGGER.info("│   ├── Model created with vocab of %s", vocab_size)
     LOGGER.info("│   ├── Optimizer: AdamW with lr %s", learning_rate)
     LOGGER.info("│   ├── Device: %s", device)
@@ -85,10 +98,10 @@ def main():
 
     # Model training
     LOGGER.info("├── Training the model with %s steps", max_steps)
+    time_start = time.time()
     for step in range(max_steps + 1):
         # Forward pass
         xb, yb = batcher.get_batch("train")
-        xb, yb = xb.to(device), yb.to(device)
         _, loss = model(xb, yb)
 
         # Backward pass
@@ -107,14 +120,20 @@ def main():
             LOGGER.info("│   │   ├── Train loss: %s", train_loss)
             LOGGER.info("│   │   └── Val loss:   %s", val_loss)
 
-    LOGGER.info("│   └── Model training completed")
+    time_end = time.time()
+    time_elapsed = (time_end - time_start) / 60
+    LOGGER.info("│   └── Model training completed in %s minutes.", time_elapsed)
     LOGGER.info("│")
 
-    LOGGER.info("├── Generating text")
-    context = torch.randint(tokenizer.vocab_size, (1, 1)).to(device)
-    generated_tokens = model.generate(context, 80)
+    LOGGER.info("├── Generating text for testing")
+    random_start = False
+    if random_start:
+        context = torch.randint(tokenizer.vocab_size, (1, 1)).to(device)
+    else:
+        start_token = tokenizer.encode("La")
+        context = torch.tensor([start_token]).to(device)
+    generated_tokens = model.generate(context, 200)
     generated_text = tokenizer.decode(generated_tokens[0].tolist())
-    LOGGER.info("│   ├── Text generated")
     LOGGER.info("│   └── %s", generated_text.replace("\n", " "))
     LOGGER.info("│")
 
